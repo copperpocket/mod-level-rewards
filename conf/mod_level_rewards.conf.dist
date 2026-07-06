@@ -1,0 +1,31 @@
+[worldserver]
+
+#
+# ModLevelRewards.Enable
+# Description: Enable or disable the leveling rewards system.
+# Default:     1 (Enabled)
+ModLevelRewards.Enable = 1
+
+#
+# ModLevelRewards.Motd.Announce
+# Description: Show a notification to the player upon logging in.
+# Default:     1 (Enabled)
+ModLevelRewards.Motd.Announce = 1
+
+#
+# ModLevelRewards.Motd.String.ID
+# Description: Acore_string table row ID to print to players if Motd.Announce is enabled.
+# Default:     60000
+ModLevelRewards.Motd.String.ID = 60000
+
+#
+# ModLevelRewards.GlobalAnnounce.Enable
+# Description: Broadcast a shard-wide chat notification when players level up.
+# Default:     1 (Enabled)
+ModLevelRewards.GlobalAnnounce.Enable = 1
+
+#
+# ModLevelRewards.ChestRewards.Enable
+# Description: Grants automated custom reward containers to characters upon reaching milestone brackets.
+# Default:     1 (Enabled)
+ModLevelRewards.ChestRewards.Enable = 1
