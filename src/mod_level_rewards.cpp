@@ -657,9 +657,12 @@ public:
 class ModLevelRewardsWorldScript : public WorldScript
 {
 public:
-    ModLevelRewardsWorldScript() : WorldScript("ModLevelRewardsWorldScript", { WORLDHOOK_ON_BEFORE_CONFIG_LOAD }) { }
+    ModLevelRewardsWorldScript() : WorldScript("ModLevelRewardsWorldScript", { 
+        WORLDHOOK_ON_BEFORE_CONFIG_LOAD,
+        WORLDHOOK_ON_STARTUP 
+    }) { }
 
-    void OnBeforeConfigLoad(bool reload) override
+    void OnBeforeConfigLoad(bool /*reload*/) override
     {
         sConfigMgr->LoadModulesConfigs();
         sRewardsConfig.motdMessageId        = sConfigMgr->GetOption<uint32>("ModLevelRewards.Motd.String.ID", 60000);
@@ -667,8 +670,11 @@ public:
         sRewardsConfig.enableModule         = sConfigMgr->GetOption<bool>("ModLevelRewards.Enable", true);
         sRewardsConfig.enableGlobalAnnounce = sConfigMgr->GetOption<bool>("ModLevelRewards.GlobalAnnounce.Enable", true);
         sRewardsConfig.enableChestRewards   = sConfigMgr->GetOption<bool>("ModLevelRewards.ChestRewards.Enable", true);
+    }
 
-        // Load or refresh the dynamic adaptive pool compilation
+    void OnStartup() override
+    {
+        // The database is completely connected and ready here. Safe to query!
         PopulateLootGenerationCache();
     }
 };
@@ -679,5 +685,4 @@ void AddLevelRewardsScripts()
     new ModLevelRewardsLevelUp();
     new ModLevelRewardsWorldScript();
     new Script_RewardChestItem();
-    PopulateLootGenerationCache();
 }
