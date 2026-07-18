@@ -24,6 +24,11 @@ constexpr uint32 TOKEN_WHITE_GEAR = 900001;
 constexpr uint32 TOKEN_GREEN_GEAR = 900002;
 constexpr uint32 TOKEN_BLUE_GEAR  = 900003;
 
+// System-mail sender id. Reuse an existing "system" NPC entry you already
+// use for auto-generated mail, or define one. 0 is acceptable for MAIL_NORMAL
+// system mail in AzerothCore, but a dedicated creature entry is cleaner.
+constexpr uint32 REWARD_MAIL_SENDER = 0;
+
 enum ChestTier { 
     TIER_WHITE, 
     TIER_GREEN, 
@@ -52,6 +57,41 @@ static ModLevelRewardsConfig sRewardsConfig;
 // Thread-safe memory cache for rolling level-appropriate base gear
 // Composite Key: ((Class << 16) | (Quality << 8) | RequiredLevel) -> list of items
 static std::unordered_map<uint32, std::vector<uint32>> sCachedGearPools;
+
+// Safely mails a single item to a player. Returns false only if the
+// item template is invalid. Never dereferences the player as a sender.
+static bool MailRewardItem(Player* player, uint32 itemId, uint32 count,
+                           std::string const& subject, std::string const& body)
+{
+    if (!player)
+        return false;
+
+    ItemTemplate const* proto = sObjectMgr->GetItemTemplate(itemId);
+    if (!proto)
+        return false;
+
+    CharacterDatabaseTransaction trans = CharacterDatabase.BeginTransaction();
+
+    MailDraft draft(subject, body);
+
+    // Let MailDraft create + persist the item inside THIS transaction.
+    if (Item* item = Item::CreateItem(itemId, count, player))
+    {
+        item->SaveToDB(trans);          // persisted inside the real transaction
+        draft.AddItem(item);
+    }
+    else
+    {
+        CharacterDatabase.CommitTransaction(trans);
+        return false;
+    }
+
+    // System sender (GM/creature), NOT the receiving player.
+    draft.SendMailTo(trans, MailReceiver(player), MailSender(MAIL_CREATURE, REWARD_MAIL_SENDER, MAIL_STATIONERY_GM));
+
+    CharacterDatabase.CommitTransaction(trans);
+    return true;
+}
 
 std::string GetClassColor(Player* player) {
     switch (player->getClass()) {
@@ -427,25 +467,29 @@ void GenerateChestLoot(Player* player, ChestTier tier)
     }
     else
     {
-        Item* item = Item::CreateItem(rewardedItemId, 1, player);
-        if (item)
+        bool mailed = MailRewardItem(player, rewardedItemId, 1,
+            "Reward Chest Loot",
+            "Your bags were full when opening the chest, so we securely mailed your loot.");
+
+        if (!mailed)
         {
-            item->SaveToDB(nullptr);
-            MailDraft("Reward Chest Loot", "Your bags were full when opening the chest, so we securely mailed your loot.")
-                .AddItem(item)
-                .SendMailTo(nullptr, MailReceiver(player), MailSender(player));
-            
-            if (hitJackpot)
-            {
-                ChatHandler(player->GetSession()).PSendSysMessage("|cffFF0000[JACKPOT!]|r: Your bags are full! Your legendary reward has been sent to your mailbox.");
-                std::string announceStr = "|cffFF0000[SERVER JACKPOT]|r " + GetClassColor(player) + player->GetName() + 
-                                          "|cffFFFFFF has beaten the |cff00FF001/1000|cffFFFFFF odds and drawn: " + itemTemplate->Name1 + "! (Sent to mail)";
-                sWorldSessionMgr->SendServerMessage(SERVER_MSG_STRING, announceStr.c_str());
-            }
-            else
-            {
-                ChatHandler(player->GetSession()).PSendSysMessage("|cffFF0000[Reward Chest]|r: Your bags are full! The chest loot has been sent to your mailbox.");
-            }
+            LOG_ERROR("module", "mod_level_rewards: Failed to mail loot {} to {}.", rewardedItemId, player->GetName());
+            ChatHandler(player->GetSession()).PSendSysMessage("The reward could not be delivered. Please contact a GM.");
+            return;
+        }
+
+        if (hitJackpot)
+        {
+            ChatHandler(player->GetSession()).PSendSysMessage(
+                "|cffFF0000[JACKPOT!]|r: Your bags are full! Your legendary reward has been sent to your mailbox.");
+            std::string announceStr = "|cffFF0000[SERVER JACKPOT]|r " + GetClassColor(player) + player->GetName() +
+                "|cffFFFFFF has beaten the |cff00FF001/1000|cffFFFFFF odds and drawn: " + itemTemplate->Name1 + "! (Sent to mail)";
+            sWorldSessionMgr->SendServerMessage(SERVER_MSG_STRING, announceStr.c_str());
+        }
+        else
+        {
+            ChatHandler(player->GetSession()).PSendSysMessage(
+                "|cffFF0000[Reward Chest]|r: Your bags are full! The chest loot has been sent to your mailbox.");
         }
     }
 }
@@ -473,15 +517,16 @@ void GiveBoERewardChest(Player* player, ChestTier tier)
     }
     else
     {
-        Item* item = Item::CreateItem(chestItemId, 1, player);
-        if (item)
+        if (MailRewardItem(player, chestItemId, 1,
+                "Level Up Chest!",
+                "Congratulations on your new level! Your bags were full, so we mailed your Reward Chest."))
         {
-            item->SaveToDB(nullptr);
-            MailDraft("Level Up Chest!", "Congratulations on your new level! Your bags were full, so we mailed your Reward Chest.")
-                .AddItem(item)
-                .SendMailTo(nullptr, MailReceiver(player), MailSender(player));
-            
-            ChatHandler(player->GetSession()).PSendSysMessage("|cffFF0000[Level Reward]|r: Your bags are full! Your Reward Chest has been sent to your mailbox.");
+            ChatHandler(player->GetSession()).PSendSysMessage(
+                "|cffFF0000[Level Reward]|r: Your bags are full! Your Reward Chest has been sent to your mailbox.");
+        }
+        else
+        {
+            LOG_ERROR("module", "mod_level_rewards: Failed to mail chest {} to {}.", chestItemId, player->GetName());
         }
     }
 }
@@ -574,12 +619,12 @@ std::string GetLocalizedMessage(Player* player, uint8 level, bool isGlobalAnnoun
         switch (locale) {
             case LOCALE_zhCN:
             case LOCALE_zhTW:
-                return "恭喜达到等级 " + std::to_string(level) + "，" + name + "！您获得了一个奖励宝箱！";
+                return "您获得了一个奖励宝箱！";
             case LOCALE_esES:
             case LOCALE_esMX:
-                return "¡Felicidades por el nivel " + std::to_string(level) + " " + name + "! ¡Has recibido un cofre de recompensa!";
+                return "¡Has recibido un cofre de recompensa!";
             default:
-                return "Congrats on Level " + std::to_string(level) + " " + name + "! You have received a Reward Chest!";
+                return "You have received a Reward Chest!";
         }
     }
 }
