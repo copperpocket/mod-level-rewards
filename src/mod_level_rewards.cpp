@@ -11,6 +11,8 @@
 #include <vector>
 #include <string>
 #include <unordered_map>
+#include <sstream>
+#include <iomanip>
 
 // --- CUSTOM CHEST ITEM IDs ---
 constexpr uint32 ITEM_CHEST_WHITE    = 900100;
@@ -91,6 +93,32 @@ static bool MailRewardItem(Player* player, uint32 itemId, uint32 count,
 
     CharacterDatabase.CommitTransaction(trans);
     return true;
+}
+
+// Builds a client-clickable item hyperlink for chat output.
+static std::string BuildItemLink(Player* player, ItemTemplate const* proto)
+{
+    if (!proto)
+        return "";
+
+    // Quality color, e.g. 0xff1eff00 for uncommon. Mask to RGB.
+    uint32 color = ItemQualityColors[proto->Quality] & 0x00FFFFFF;
+
+    // Locale-correct name if you have localized item names; Name1 is the default.
+    std::string const& name = proto->Name1;
+
+    // playerLevel field scales the tooltip's "heirloom" style display; the
+    // player's level is the safe, conventional value to pass.
+    uint32 playerLevel = player ? player->GetLevel() : 0;
+
+    std::ostringstream oss;
+    oss << "|c" << std::hex << std::setw(8) << std::setfill('0')
+        << (0xFF000000 | color) << std::dec
+        << "|Hitem:" << proto->ItemId
+        << ":0:0:0:0:0:0:0:" << playerLevel
+        << "|h[" << name << "]|h|r";
+
+    return oss.str();
 }
 
 std::string GetClassColor(Player* player) {
@@ -453,20 +481,28 @@ void GenerateChestLoot(Player* player, ChestTier tier)
     if (msg == EQUIP_ERR_OK)
     {
         player->StoreNewItem(dest, rewardedItemId, true);
+
+        std::string link = BuildItemLink(player, itemTemplate);
+
         if (hitJackpot)
         {
-            ChatHandler(player->GetSession()).PSendSysMessage("|cffFFFF00[JACKPOT!]|r: Cosmic luck! You opened a legendary tier-exclusive upgrade!");
-            std::string announceStr = "|cffFF0000[SERVER JACKPOT]|r " + GetClassColor(player) + player->GetName() + 
-                                      "|cffFFFFFF has beaten the |cff00FF001/1000|cffFFFFFF odds from a Reward Chest and drawn: " + itemTemplate->Name1 + "!";
+            ChatHandler(player->GetSession()).PSendSysMessage(
+                "|cffFFFF00[JACKPOT!]|r: Cosmic luck! You opened a legendary upgrade: {}", link);
+
+            std::string announceStr = "|cffFF0000[SERVER JACKPOT]|r " + GetClassColor(player) + player->GetName() +
+                "|cffFFFFFF has beaten the |cff00FF001/1000|cffFFFFFF odds from a Reward Chest and drawn: " + link + "!";
             sWorldSessionMgr->SendServerMessage(SERVER_MSG_STRING, announceStr.c_str());
         }
         else
         {
-            ChatHandler(player->GetSession()).PSendSysMessage("|cff00FF00[Reward Chest]|r: You successfully opened the chest and looted an item!");
+            ChatHandler(player->GetSession()).PSendSysMessage(
+                "|cff00FF00[Reward Chest]|r: You opened the chest and looted: {}", link);
         }
     }
     else
     {
+        std::string link = BuildItemLink(player, itemTemplate);
+
         bool mailed = MailRewardItem(player, rewardedItemId, 1,
             "Reward Chest Loot",
             "Your bags were full when opening the chest, so we securely mailed your loot.");
@@ -481,15 +517,16 @@ void GenerateChestLoot(Player* player, ChestTier tier)
         if (hitJackpot)
         {
             ChatHandler(player->GetSession()).PSendSysMessage(
-                "|cffFF0000[JACKPOT!]|r: Your bags are full! Your legendary reward has been sent to your mailbox.");
+                "|cffFF0000[JACKPOT!]|r: Bags full! Your legendary reward {} was sent to your mailbox.", link);
+
             std::string announceStr = "|cffFF0000[SERVER JACKPOT]|r " + GetClassColor(player) + player->GetName() +
-                "|cffFFFFFF has beaten the |cff00FF001/1000|cffFFFFFF odds and drawn: " + itemTemplate->Name1 + "! (Sent to mail)";
+                "|cffFFFFFF has beaten the |cff00FF001/1000|cffFFFFFF odds and drawn: " + link + "! (Sent to mail)";
             sWorldSessionMgr->SendServerMessage(SERVER_MSG_STRING, announceStr.c_str());
         }
         else
         {
             ChatHandler(player->GetSession()).PSendSysMessage(
-                "|cffFF0000[Reward Chest]|r: Your bags are full! The chest loot has been sent to your mailbox.");
+                "|cffFF0000[Reward Chest]|r: Bags full! {} was sent to your mailbox.", link);
         }
     }
 }
